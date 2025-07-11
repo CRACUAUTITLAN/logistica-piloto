@@ -1,0 +1,26 @@
+name: Planificador logístico
+
+on:
+  schedule:
+    - cron: '5 21 * * *'  # 15:05 hora CDMX
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clonar repositorio
+        uses: actions/checkout@v3
+
+      - name: Configurar Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Instalar dependencias
+        run: |
+          pip install -r requirements.txt
+
+      - name: Ejecutar planificador logístico
+        run: |
+          python planificador.py
