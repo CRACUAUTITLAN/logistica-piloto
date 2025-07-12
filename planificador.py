@@ -1,73 +1,52 @@
+# planificador.py
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
 import pandas as pd
-import numpy as np
-import os
 from datetime import datetime, timedelta
+import os
 
-def planificar_logistica_simple(df, hora_inicio="08:00"):
-    df = df.copy()
-    df["Latitud"] = df["Latitud"].astype(float)
-    df["Longitud"] = df["Longitud"].astype(float)
+# Autenticación con Google Sheets
+scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+creds = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", scope)
+client = gspread.authorize(creds)
+sheet = client.open_by_url("https://docs.google.com/spreadsheets/d/1qoux5KkmNoYXRrw9FOPHJR53Hie9kIUXETBRiQNmvFw/edit").sheet1
 
-    origen = (19.667923496820304, -99.20018003699839)  # Agencia CRA Cuautitlan
-    num_vehiculos = 4
-    tiempo_por_entrega = timedelta(minutes=15)
-    tiempo_entre_pedidos = timedelta(minutes=15)
-    hora_inicio = pd.to_datetime(hora_inicio)
+# Leer todos los datos
+data = sheet.get_all_records()
+df = pd.DataFrame(data)
 
-    df["distancia"] = df.apply(
-        lambda row: np.sqrt((row["Latitud"] - origen[0])**2 + (row["Longitud"] - origen[1])**2),
-        axis=1
-    )
+# Fecha de ayer (los pedidos que se entregarán mañana)
+ayer = (datetime.now() - timedelta(days=1)).date()
+df['FechaCaptura'] = pd.to_datetime(df['FechaCaptura']).dt.date
+df_ayer = df[df['FechaCaptura'] == ayer]
 
-    df = df.sort_values("distancia").reset_index(drop=True)
-    pedidos_por_vehiculo = np.array_split(df, num_vehiculos)
-    asignaciones = []
+# Verificamos si hay pedidos
+if df_ayer.empty:
+    print("⚠️ No hay pedidos para planificar.")
+    exit()
 
-    for i, pedidos in enumerate(pedidos_por_vehiculo):
-        pedidos = pedidos.reset_index(drop=True)
-        tiempo_actual = hora_inicio
-        tiempos = []
+# Configuración
+N_VEHICULOS = 4
+df_ayer = df_ayer.reset_index(drop=True)
 
-        for idx in range(len(pedidos)):
-            if idx > 0:
-                tiempo_actual += tiempo_entre_pedidos
-            tiempos.append(tiempo_actual.strftime("%H:%M"))
-            tiempo_actual += tiempo_por_entrega
+# Asignación simple por bloques
+pedidos_por_carro = len(df_ayer) // N_VEHICULOS
+restantes = len(df_ayer) % N_VEHICULOS
 
-        duracion_total = tiempo_actual - hora_inicio
-        if duracion_total > timedelta(hours=3.5):
-            pedidos["Hora comida"] = [""] * (len(pedidos) // 2) + ["13:00"] + [""] * (len(pedidos) - len(pedidos) // 2 - 1)
-        else:
-            pedidos["Hora comida"] = ""
+inicio = 0
+carpetas_generadas = []
 
-        pedidos["Hora estimada entrega"] = tiempos
-        pedidos["Vehículo"] = f"Vehículo {i+1}"
-        asignaciones.append(pedidos)
+fecha_entrega = datetime.now().date()
+logistica_path = "logistica"
+os.makedirs(logistica_path, exist_ok=True)
 
-    return asignaciones
+for i in range(N_VEHICULOS):
+    fin = inicio + pedidos_por_carro + (1 if i < restantes else 0)
+    df_carro = df_ayer.iloc[inicio:fin]
+    if not df_carro.empty:
+        archivo = f"{logistica_path}/vehiculo_{i+1}_{fecha_entrega}.csv"
+        df_carro.to_csv(archivo, index=False)
+        carpetas_generadas.append(archivo)
+    inicio = fin
 
-# --- EJECUCIÓN DIARIA ---
-
-hoy = datetime.now()
-meses = {
-    "january": "enero", "february": "febrero", "march": "marzo", "april": "abril",
-    "may": "mayo", "june": "junio", "july": "julio", "august": "agosto",
-    "september": "septiembre", "october": "octubre", "november": "noviembre", "december": "diciembre"
-}
-mes_nombre = meses[hoy.strftime("%B").lower()]
-anio = str(hoy.year)
-archivo_csv = f"pedidos/{mes_nombre}_{anio}.csv"
-ruta_output = "logistica"
-os.makedirs(ruta_output, exist_ok=True)
-
-if os.path.isfile(archivo_csv):
-    df = pd.read_csv(archivo_csv)
-    rutas = planificar_logistica_simple(df)
-    fecha_manana = (hoy + timedelta(days=1)).strftime("%Y-%m-%d")
-
-    for i, vehiculo_df in enumerate(rutas):
-        nombre_archivo = f"{ruta_output}/vehiculo_{i+1}_{fecha_manana}.csv"
-        vehiculo_df.to_csv(nombre_archivo, index=False)
-        print(f"✅ Ruta generada para Vehículo {i+1}: {nombre_archivo}")
-else:
-    print("⚠️ No se encontró el archivo de pedidos del mes.")
+print("✅ Archivos generados:", carpetas_generadas)
