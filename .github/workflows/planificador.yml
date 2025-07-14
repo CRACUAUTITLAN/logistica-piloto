@@ -2,7 +2,7 @@ name: Planificador logístico
 
 on:
   schedule:
-    - cron: '5 21 * * *'  # 15:05 hora CDMX
+    - cron: '5 23 * * *'  # 17:05 hora CDMX
   workflow_dispatch:
 
 jobs:
