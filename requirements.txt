@@ -5,3 +5,5 @@ python-dotenv
 requests
 reportlab
 folium
+gspread
+oauth2client
